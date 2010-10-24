@@ -19,7 +19,9 @@
 	<key>PlexClientPlatforms</key>
 	<string>MacOSX</string>
 	<key>PlexMediaContainer</key>
-	<string>Flash</string>
+	<array>
+		<string>Flash</string>
+	</array>
 	<key>PlexPluginDebug</key>
 	<string>1</string>
 	<key>PlexPluginMode</key>
