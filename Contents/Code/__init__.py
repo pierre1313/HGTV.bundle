@@ -1,7 +1,4 @@
 import re, sys, urllib2
-from PMS import Plugin, Log, DB, Thread, XML, HTTP, JSON, RSS, Utils
-from PMS.MediaXML import *
-from PMS.Shorthand import _L, _R, _E, _D
 
 PLUGIN_PREFIX   = "/video/hgtv"
 
@@ -11,93 +8,78 @@ SHOW_LINKS_URL       = "http://www.hgtv.com/full-episodes/package/index.html"
 # Clip URLs
 BASE_URL        = "http://www.hgtv.com"
 
-
 CACHE_INTERVAL      = 2000
+
+ART = "art-default.jpg"
+ICON = "icon-default.png"
+NAME = "HGTV"
 
 ####################################################################################################
 def Start():
-  Plugin.AddRequestHandler(PLUGIN_PREFIX, HandleVideosRequest, "HGTV", "icon-default.png", "art-default.png")
-  Plugin.AddViewGroup("InfoList", viewMode="InfoList", contentType="items")
-  Plugin.AddViewGroup("List", viewMode="List", contentType="items")
+ 
+  Plugin.AddPrefixHandler(PLUGIN_PREFIX, MainMenu, NAME, ICON, ART)
+  Plugin.AddViewGroup("Details", viewMode="InfoList", mediaType="items")
+  Plugin.AddViewGroup("List", viewMode="List", mediaType="items")
+  MediaContainer.title1 = NAME
+  MediaContainer.content = 'Items'
+  MediaContainer.art = R(ART)
+  MediaContainer.viewGroup = "List"
+  DirectoryItem.thumb = R(ICON)
+  
+  HTTP.CacheTime = CACHE_INTERVAL
 ##################################################################################################
 
-def HandleVideosRequest(pathNouns, count): 
-  try:
-    title2 = pathNouns[count-1].split("||")[1].split("^")[0]
-    target_url = BASE_URL + _D(pathNouns[count-1].split("^")[1])
-  except:
-    title2 = ""
-    
-  vg="InfoList"
+def MainMenu():
+  dir= MediaContainer(viewGroup = 'List')
+  for s in HTML.ElementFromURL(SHOW_LINKS_URL).xpath('//h2'):
+      title = s.text
+      url = s.xpath("../p[@class='cta']/a")[0].get('href')
+      thumb = s.xpath("../a/img")[0].get('src')
+      dir.Append(Function(DirectoryItem(GetShows, title=title, thumb=Function(GetThumb, path=thumb)),path=BASE_URL +url,title=title))
+  return dir
   
-  dir = MediaContainer("art-default.png", viewGroup=vg, title1="HGTV",title2=title2)
+def GetThumb(path):
+  return DataObject(HTTP.Request(path),'image/jpeg')
   
-  if count == 0:
-    shows = XML.ElementFromString(HTTP.GetCached(SHOW_LINKS_URL, CACHE_INTERVAL), True).xpath('//h2')
-    for s in shows:
-        title = s.text
-        url = s.xpath("../p[@class='cta']/a")[0].get('href')
-        thumb = s.xpath("../a/img")[0].get('src')
-        title2 = s.text
-        Log.Add("url = " + url)
-        dir.AppendItem(DirectoryItem('shows||'+title+"^"+_E(url), title))
-    
-  
-  elif pathNouns[0].startswith("shows"):
-    #target_url = BASE_URL+('/'.join(pathNouns[1:]))
-    html = HTTP.GetCached(target_url, CACHE_INTERVAL)
+def GetShows(sender,path,title=None):
+    dir = MediaContainer(viewGroup="InfoList",title2=title)
+    html = HTTP.Request(path).content
     matches = re.search("SNI.HGTV.Player.FullSize\('vplayer-1','([^']*)'", html)
     show_id = matches.group(1)
     matches = re.search("mdManager.addParameter\(\"SctnId\",[\s]*\"([^\"]*)", html)
     sctn_id = matches.group(1)
     matches = re.search("mdManager.addParameter\(\"DetailId\",[\s]*\"([^\"]*)", html)
     detail_id = matches.group(1)
-    clips = XML.ElementFromString(HTTP.GetCached('http://www.hgtv.com/hgtv/channel/xml/0,,'+show_id+',00.xml', CACHE_INTERVAL).strip(), False).xpath("//video")
-    for c in clips:
+    xmlcontent = HTTP.Request('http://www.hgtv.com/hgtv/channel/xml/0,,'+show_id+',00.xml').content.strip()
+    for c in XML.ElementFromString(xmlcontent).xpath("//video"):
         title = c.xpath("./clipName")[0].text
-        duration = GetDurationFromDesc(c.xpath("length")[0].text)
+        duration = GetDurationFromString(c.xpath("length")[0].text)
         desc = c.xpath("abstract")[0].text
-        url = 'http://www.hgtv.com/hgtv/video/player/0,1000149,HGTV_'
-        url += sctn_id+'_'
-        url += detail_id+'_'
-        url += show_id+'-'
-        url += c.xpath("./videoId")[0].text
-        url += '.html'
-        Log.Add(url)
+        url = c.xpath("./videoUrl")[0].text.replace('http://wms','rtmp://flash').replace('.wmv','').replace('scrippsnetworks.com/','scrippsnetworks.com/ondemand/&').split('&')
         thumb = c.xpath("thumbnailUrl")[0].text
-        vidItem = WebVideoItem(url, title, desc, duration, thumb)
-        dir.AppendItem(vidItem)
-        
-  else:
-        Log.Add("Unknown pathNoun: "+str(pathNouns))
-    
-    
-  return dir.ToXML()
+        dir.Append(RTMPVideoItem(url[0], clip=url[1], title=title, summary=desc, duration=duration, thumb=Function(GetThumb, path=thumb)))
+
+    return dir
   
-# Try and parse the duration from the end of the description
-def GetDurationFromDesc(desc):
-  duration = ""
+def GetDurationFromString(duration):
 
   try:
-    descArray =  desc.split("(")
-    descArrayLen =  len (descArray)
-    if descArrayLen<2:
-      return ""
+    durationArray = duration.split(":")
 
-    time = descArray[descArrayLen - 1]
-    timeArray = time.split(":")
-
-    timeArrayLen = len(timeArray)
-
-    if timeArrayLen<2:
-      return ""
-
-    minutes = int(timeArray[0])
-    seconds = int(timeArray[1].split(")")[0])
-    duration = str(((minutes*60) + seconds)*1000)
+    if len(durationArray) == 3:
+      hours = int(durationArray[0])
+      minutes = int(durationArray[1])
+      seconds = int(durationArray[2])
+    elif len(durationArray) == 2:
+      hours = 0
+      minutes = int(durationArray[0])
+      seconds = int(durationArray[1])
+    elif len(durationArray)  ==  1:
+      hours = 0
+      minutes = 0
+      seconds = int(durationArray[0])
+      
+    return int(((hours)*3600 + (minutes*60) + seconds)*1000)
     
   except:
-    # There was a problem getting the duration (maybe it isn't on the description any more?) so quit with a null
-    return ""
-
-  return duration
+    return 0
