@@ -42,23 +42,25 @@ def GetThumb(path):
   return DataObject(HTTP.Request(path),'image/jpeg')
   
 def GetShows(sender,path,title=None):
-    dir = MediaContainer(viewGroup="InfoList",title2=title)
+    dir = MediaContainer(viewGroup="Details",title2=title)
     html = HTTP.Request(path).content
     matches = re.search("SNI.HGTV.Player.FullSize\('vplayer-1','([^']*)'", html)
-    show_id = matches.group(1)
-    matches = re.search("mdManager.addParameter\(\"SctnId\",[\s]*\"([^\"]*)", html)
-    sctn_id = matches.group(1)
-    matches = re.search("mdManager.addParameter\(\"DetailId\",[\s]*\"([^\"]*)", html)
-    detail_id = matches.group(1)
-    xmlcontent = HTTP.Request('http://www.hgtv.com/hgtv/channel/xml/0,,'+show_id+',00.xml').content.strip()
-    for c in XML.ElementFromString(xmlcontent).xpath("//video"):
-        title = c.xpath("./clipName")[0].text
-        duration = GetDurationFromString(c.xpath("length")[0].text)
-        desc = c.xpath("abstract")[0].text
-        url = c.xpath("./videoUrl")[0].text.replace('http://wms','rtmp://flash').replace('.wmv','').replace('scrippsnetworks.com/','scrippsnetworks.com/ondemand/&').split('&')
-        thumb = c.xpath("thumbnailUrl")[0].text
-        dir.Append(RTMPVideoItem(url[0], clip=url[1], title=title, summary=desc, duration=duration, thumb=Function(GetThumb, path=thumb)))
-
+    try:
+      show_id = matches.group(1)
+      matches = re.search("mdManager.addParameter\(\"SctnId\",[\s]*\"([^\"]*)", html)
+      sctn_id = matches.group(1)
+      matches = re.search("mdManager.addParameter\(\"DetailId\",[\s]*\"([^\"]*)", html)
+      detail_id = matches.group(1)
+      xmlcontent = HTTP.Request('http://www.hgtv.com/hgtv/channel/xml/0,,'+show_id+',00.xml').content.strip()
+      for c in XML.ElementFromString(xmlcontent).xpath("//video"):
+          title = c.xpath("./clipName")[0].text
+          duration = GetDurationFromString(c.xpath("length")[0].text)
+          desc = c.xpath("abstract")[0].text
+          url = c.xpath("./videoUrl")[0].text.replace('http://wms','rtmp://flash').replace('.wmv','').replace('scrippsnetworks.com/','scrippsnetworks.com/ondemand/&').split('&')
+          thumb = c.xpath("thumbnailUrl")[0].text
+          dir.Append(RTMPVideoItem(url[0], clip=url[1], title=title, summary=desc, duration=duration, thumb=Function(GetThumb, path=thumb)))
+    except:
+      dir = MessageContainer("Error","Ths sections does not contain any video")
     return dir
   
 def GetDurationFromString(duration):
